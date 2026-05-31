@@ -9,6 +9,10 @@ import { MCP } from "../mcp"
 import { Skill } from "../skill"
 import PROMPT_INITIALIZE from "./template/initialize.txt"
 import PROMPT_REVIEW from "./template/review.txt"
+import PROMPT_RECAP from "./template/recap.txt"
+import PROMPT_BTW from "./template/btw.txt"
+import PROMPT_GOAL from "./template/goal.txt"
+import PROMPT_LOOP from "./template/loop.txt"
 
 type State = {
   commands: Record<string, Info>
@@ -53,6 +57,10 @@ export function hints(template: string) {
 export const Default = {
   INIT: "init",
   REVIEW: "review",
+  RECAP: "recap",
+  BTW: "btw",
+  GOAL: "goal",
+  LOOP: "loop",
 } as const
 
 export interface Interface {
@@ -92,6 +100,37 @@ export const layer = Layer.effect(
         },
         subtask: true,
         hints: hints(PROMPT_REVIEW),
+      }
+      commands[Default.RECAP] = {
+        name: Default.RECAP,
+        description: "summarize current session state",
+        source: "command",
+        template: PROMPT_RECAP,
+        hints: hints(PROMPT_RECAP),
+      }
+      commands[Default.BTW] = {
+        name: Default.BTW,
+        description: "ask a side question without affecting conversation context",
+        source: "command",
+        template: PROMPT_BTW,
+        subtask: true,
+        hints: hints(PROMPT_BTW),
+      }
+      commands[Default.GOAL] = {
+        name: Default.GOAL,
+        description: "set a goal to work toward autonomously",
+        source: "command",
+        template: PROMPT_GOAL,
+        subtask: true,
+        hints: hints(PROMPT_GOAL),
+      }
+      commands[Default.LOOP] = {
+        name: Default.LOOP,
+        description: "schedule a recurring task <interval_s> <max_iterations> <prompt>",
+        source: "command",
+        template: PROMPT_LOOP,
+        subtask: true,
+        hints: hints(PROMPT_LOOP),
       }
 
       for (const [name, command] of Object.entries(cfg.command ?? {})) {

@@ -22,6 +22,18 @@ type Metadata = {
   todos: Todo.Info[]
 }
 
+function checkVerificationNudge(todos: Todo.Info[]): string | undefined {
+  const completed = todos.filter((x) => x.status === "completed")
+  if (completed.length < 3) return undefined
+  const hasVerification = completed.some((x) => /verif|test/i.test(x.content))
+  if (hasVerification) return undefined
+  return [
+    "NOTE: You just closed out 3+ tasks and none of them was a verification step.",
+    "Before writing your final summary, consider spawning the verification agent (subagent_type=\"verification\") to independently verify your implementation.",
+    "Only the verifier issues a verdict — you cannot self-assign PASS by listing caveats in your summary.",
+  ].join("\n")
+}
+
 export const TodoWriteTool = Tool.define<typeof Parameters, Metadata, Todo.Service>(
   "todowrite",
   Effect.gen(function* () {
@@ -44,9 +56,13 @@ export const TodoWriteTool = Tool.define<typeof Parameters, Metadata, Todo.Servi
             todos: params.todos,
           })
 
+          const outputLines: string[] = [JSON.stringify(params.todos, null, 2)]
+          const nudge = checkVerificationNudge(params.todos)
+          if (nudge) outputLines.push("", nudge)
+
           return {
             title: `${params.todos.filter((x) => x.status !== "completed").length} todos`,
-            output: JSON.stringify(params.todos, null, 2),
+            output: outputLines.join("\n"),
             metadata: {
               todos: params.todos,
             },

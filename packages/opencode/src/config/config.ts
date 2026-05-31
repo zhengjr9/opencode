@@ -270,6 +270,24 @@ export const Info = Schema.Struct({
       }),
     }),
   ),
+  output_style: Schema.optional(Schema.String).annotate({
+    description:
+      "Controls the output style for assistant responses. Set to a style name like 'concise' or 'explanatory' to inject style-specific instructions into the system prompt.",
+  }),
+  session_memory: Schema.optional(
+    Schema.Struct({
+      enabled: Schema.optional(Schema.Boolean).annotate({
+        description: "Enable session memory (default: true)",
+      }),
+      auto_extract: Schema.optional(Schema.Boolean).annotate({
+        description: "Automatically extract session notes after significant turns (default: true)",
+      }),
+      file_path: Schema.optional(Schema.String).annotate({
+        description:
+          "Custom path for session memory file. Defaults to <working-dir>/.opencode/memory/<session-id>.md",
+      }),
+    }),
+  ),
   experimental: Schema.optional(
     Schema.Struct({
       disable_paste_summary: Schema.optional(Schema.Boolean),

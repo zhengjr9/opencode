@@ -62,7 +62,9 @@ export const layer: Layer.Layer<
     const http = HttpClient.filterStatusOk(withTransientReadRetry(yield* HttpClient.HttpClient))
     const globalFiles = [
       path.join(global.config, "AGENTS.md"),
-      ...(!flags.disableClaudeCodePrompt ? [path.join(global.home, ".claude", "CLAUDE.md")] : []),
+      ...(!flags.disableClaudeCodePrompt
+        ? [path.join(global.home, ".claude", "CLAUDE.md"), path.join(global.home, ".claude", "AGENTS.md")]
+        : []),
     ]
     const instructionFiles = files(flags.disableClaudeCodePrompt)
 

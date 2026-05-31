@@ -1,0 +1,5 @@
+Answer the user's side question concisely. Do NOT add any information to the main conversation context - this is a separate query that should not affect future responses.
+
+Side question: $ARGUMENTS
+
+Keep your answer brief and focused. Do not make any changes to files or execute commands unless explicitly asked.

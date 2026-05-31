@@ -1,0 +1,12 @@
+A goal has been set. Work autonomously toward completing it.
+
+Goal: $ARGUMENTS
+
+## Rules
+1. Work step by step toward the goal
+2. After each action, check if the goal is complete
+3. If the goal is complete, respond with "## Goal Complete: [summary of what was done]"
+4. If blocked, explain the blocker and ask for help
+5. Do not ask for confirmation before taking action - just work toward the goal
+6. If you need more information to proceed, use the available tools to find it
+7. Track progress explicitly in your response

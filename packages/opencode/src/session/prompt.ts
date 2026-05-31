@@ -32,6 +32,8 @@ import { pathToFileURL, fileURLToPath } from "url"
 import { Config } from "@/config/config"
 import { ConfigMarkdown } from "@/config/markdown"
 import { SessionSummary } from "./summary"
+import { SessionMemory } from "./memory"
+import { Memdir } from "@/memory/memdir"
 import { NamedError } from "@opencode-ai/core/util/error"
 import { SessionProcessor } from "./processor"
 import { Tool } from "@/tool/tool"
@@ -1640,7 +1642,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       throw new Error("Impossible")
     })
 
-    const runLoop: (sessionID: SessionID) => Effect.Effect<MessageV2.WithParts> = Effect.fn("SessionPrompt.run")(
+    const runLoop = Effect.fn("SessionPrompt.run")(
       function* (sessionID: SessionID) {
         const ctx = yield* InstanceState.context
         const slog = elog.with({ sessionID })
@@ -1809,13 +1811,29 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
             yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
 
-            const [skills, env, instructions, modelMsgs] = yield* Effect.all([
+            const memdirInfo = yield* Effect.serviceOption(Memdir.Service).pipe(
+              Effect.flatMap((opt) =>
+                opt._tag === "Some"
+                  ? opt.value.read().pipe(Effect.catch(() => Effect.succeed({ indexContent: undefined, topicFiles: [] } as Memdir.MemdirInfo)))
+                  : Effect.succeed({ indexContent: undefined, topicFiles: [] } as Memdir.MemdirInfo),
+              ),
+            )
+            const [skills, env, instructions, configInfo, ctx, modelMsgs] = yield* Effect.all([
               sys.skills(agent),
               sys.environment(model),
               instruction.system().pipe(Effect.orDie),
+              config.get(),
+              InstanceState.context,
               MessageV2.toModelMessagesEffect(msgs, model),
             ])
-            const system = [...env, ...instructions, ...(skills ? [skills] : [])]
+            const stylePrompt = SystemPrompt.getOutputStyle(configInfo)
+            const memoryPrompt = yield* SystemPrompt.getMemoryPrompt(configInfo, sessionID, ctx.directory, fsys)
+            const memdirPrompt = SystemPrompt.getMemdirPrompt(memdirInfo, ctx.directory)
+            const dynamic: string[] = []
+            if (stylePrompt) dynamic.push(stylePrompt)
+            if (memoryPrompt) dynamic.push(memoryPrompt)
+            if (memdirPrompt) dynamic.push(memdirPrompt)
+            const system = [...env, ...instructions, ...dynamic, ...(skills ? [skills] : [])]
             const format = lastUser.format ?? { type: "text" as const }
             if (format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
             const result = yield* handle.process({
@@ -1859,6 +1877,12 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 auto: true,
                 overflow: !handle.message.finish,
               })
+            }
+            if (handle.message.finish && !handle.message.error) {
+              yield* extractSessionNotes(sessionID, sessions, scope).pipe(
+                Effect.ignore,
+                Effect.forkIn(scope),
+              )
             }
             return "continue" as const
           }).pipe(
@@ -2148,6 +2172,99 @@ export function createStructuredOutputTool(input: {
     },
   })
 }
+const EXTRACT_SESSION_NOTES_MIN_TOOL_CALLS = 3
+
+function extractSessionNotes(
+  sessionID: SessionID,
+  sessions: Session.Interface,
+  scope: Scope.Scope,
+): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    const sessionMemoryOpt = yield* Effect.serviceOption(SessionMemory.Service)
+    if (sessionMemoryOpt._tag === "None") return
+
+    const config = yield* (yield* Config.Service).get()
+    if (config.session_memory?.enabled === false) return
+    if (config.session_memory?.auto_extract === false) return
+
+    const msgs = yield* sessions.messages({ sessionID }).pipe(Effect.catch(() => Effect.succeed([])))
+
+    const toolCalls = msgs.filter((m) =>
+      m.parts.some((p) => p.type === "tool" && "state" in p && p.state.status !== "pending"),
+    ).length
+    if (toolCalls < EXTRACT_SESSION_NOTES_MIN_TOOL_CALLS) return
+
+    const summaryParts = msgs
+      .filter((m) => m.info.role === "assistant")
+      .flatMap((m) => m.parts)
+      .filter((p): p is MessageV2.TextPart => p.type === "text")
+      .filter((p) => !p.ignored && p.text)
+      .slice(-3)
+      .map((p) => p.text)
+
+    const fileChanges = msgs
+      .filter((m) => m.info.role === "assistant")
+      .flatMap((m) => m.parts)
+      .filter((p): p is MessageV2.ToolPart => p.type === "tool")
+      .filter((p) => p.tool === "edit" || p.tool === "write")
+      .map((p) => {
+        const input = p.state.input as { filePath?: string; file_path?: string }
+        return input?.filePath ?? input?.file_path ?? ""
+      })
+      .filter(Boolean)
+
+    const learnings: string[] = []
+    for (const text of summaryParts) {
+      const lines = text.split("\n").filter((l) => {
+        const trimmed = l.trim()
+        return trimmed.startsWith("- **") || trimmed.startsWith("* **") ||
+          trimmed.match(/^(found|discovered|learned|noticed|realized)/i) ||
+          trimmed.match(/^(the |this |that )/) ||
+          trimmed.match(/is (used|located|defined|implemented)/)
+      })
+      for (const line of lines) {
+        const clean = line.trim().replace(/^[-*]\s*/, "").replace(/\*\*/g, "")
+        if (clean.length > 10 && clean.length < 200) learnings.push(clean)
+      }
+    }
+
+    const existing = yield* sessionMemoryOpt.value.read(sessionID)
+    const entries: string[] = []
+    if (summaryParts.length > 0) {
+      entries.push("## Recent Discussion", summaryParts.join("\n"))
+    }
+    if (fileChanges.length > 0) {
+      entries.push("## Files Modified", fileChanges.map((f) => `- ${f}`).join("\n"))
+    }
+    if (learnings.length > 0) {
+      entries.push("## Learnings")
+      for (const l of learnings) entries.push(`- ${l}`)
+      Effect.serviceOption(Memdir.Service).pipe(
+        Effect.flatMap((opt) =>
+          opt._tag === "Some"
+            ? Effect.gen(function* () {
+                const existingIndex = yield* opt.value.read()
+                const indexContent = existingIndex.indexContent ?? ""
+                const newLines = learnings.filter((l) => !indexContent.includes(l))
+                if (newLines.length === 0) return
+                const updated = `${indexContent}\n\n## Auto-Learned\n${newLines.map((l) => `- ${l}`).join("\n")}`
+                yield* opt.value.write(Memdir.INDEX_FILE, updated)
+              })
+            : Effect.void,
+        ),
+      ).pipe(Effect.catchCause(() => Effect.void), Effect.forkIn(scope))
+    }
+
+    const newContent = entries.length > 0
+      ? [`# Session Notes`, `Last updated: ${new Date().toISOString()}`, ...entries].join("\n\n")
+      : existing ?? ""
+
+    if (newContent !== existing) {
+      yield* sessionMemoryOpt.value.write(sessionID, newContent)
+    }
+  }).pipe(Effect.catchCause(() => Effect.void)) as Effect.Effect<void>
+}
+
 const bashRegex = /!`([^`]+)`/g
 // Match [Image N] as single token, quoted strings, or non-space sequences
 const argsRegex = /(?:\[Image\s+\d+\]|"[^"]*"|'[^']*'|[^\s"']+)/gi

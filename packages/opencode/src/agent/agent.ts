@@ -12,6 +12,7 @@ import PROMPT_EXPLORE from "./prompt/explore.txt"
 import PROMPT_SCOUT from "./prompt/scout.txt"
 import PROMPT_SUMMARY from "./prompt/summary.txt"
 import PROMPT_TITLE from "./prompt/title.txt"
+import PROMPT_VERIFICATION from "./prompt/verification.txt"
 import { Permission } from "@/permission"
 import { mergeDeep, pipe, sortBy, values } from "remeda"
 import { Global } from "@opencode-ai/core/global"
@@ -274,6 +275,27 @@ export const layer = Layer.effect(
               user,
             ),
             prompt: PROMPT_SUMMARY,
+          },
+          verification: {
+            name: "verification",
+            mode: "subagent",
+            options: {},
+            native: true,
+            hidden: false,
+            temperature: 0.3,
+            permission: Permission.merge(
+              defaults,
+              Permission.fromConfig({
+                "*": "ask",
+                edit: "deny",
+                write: "deny",
+                patch: "deny",
+                bash: "allow",
+              }),
+              user,
+            ),
+            description: "Independent adversarial verification specialist. Use this to verify that an implementation is correct by running tests, checking edge cases, and trying to break it. Only produces PASS/FAIL/PARTIAL verdicts.",
+            prompt: PROMPT_VERIFICATION,
           },
         }
 

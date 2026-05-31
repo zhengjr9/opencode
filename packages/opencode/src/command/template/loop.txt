@@ -1,0 +1,7 @@
+Schedule a recurring task. The task will run at the specified interval until cancelled or the max iterations are reached.
+
+Usage: /loop <interval_seconds> <max_iterations> <prompt>
+
+Example: /loop 3600 24 "Check for new issues and summarize them"
+
+The prompt will be executed on the given interval. Each execution has full access to tools.

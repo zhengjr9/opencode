@@ -1,0 +1,9 @@
+Review the current conversation history and provide a concise summary of the current session state.
+
+Include:
+1. What has been accomplished so far
+2. What is currently being worked on
+3. Any open questions or blocking issues
+4. Key decisions made
+
+Keep the summary brief - no more than 3-5 sentences.
